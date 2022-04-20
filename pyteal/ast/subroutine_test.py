@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Literal
 import pytest
 
 import pyteal as pt
@@ -87,6 +87,13 @@ def test_subroutine_invocation_param_types():
     def fnWithSVAnnotations(a: pt.ScratchVar, b: pt.ScratchVar):
         return pt.Return()
 
+    def fnWithABIAnnotations(
+        a: pt.abi.Byte,
+        b: pt.abi.StaticArray[pt.abi.Uint32, Literal[10]],
+        c: pt.abi.DynamicArray[pt.abi.Bool],
+    ):
+        return pt.Return()
+
     def fnWithMixedAnns1(a: pt.ScratchVar, b: pt.Expr) -> pt.Expr:
         return pt.Return()
 
@@ -96,9 +103,18 @@ def test_subroutine_invocation_param_types():
     def fnWithMixedAnns3(a: pt.Expr, b: pt.ScratchVar):
         return pt.Return()
 
+    def fnWithMixedAnns4(a: pt.ScratchVar, b, c: pt.abi.Uint16) -> pt.Expr:
+        return pt.Return()
+
     sv = pt.ScratchVar()
     x = pt.Int(42)
     s = pt.Bytes("hello")
+    av_u16 = pt.abi.Uint16()
+    av_bool_dym_arr = pt.abi.DynamicArray(pt.abi.BoolTypeSpec())
+    av_u32_static_arr = pt.abi.StaticArray(pt.abi.Uint32TypeSpec(), 10)
+    av_bool = pt.abi.Bool()
+    av_byte = pt.abi.Byte()
+
     cases = [
         ("vanilla 1", fnWithNoAnnotations, [x, s], None),
         ("vanilla 2", fnWithNoAnnotations, [x, x], None),
@@ -109,6 +125,61 @@ def test_subroutine_invocation_param_types():
         ("all sv's 1", fnWithSVAnnotations, [sv, sv], None),
         ("all sv's but strings", fnWithSVAnnotations, [s, s], pt.TealInputError),
         ("all sv's but ints", fnWithSVAnnotations, [x, x], pt.TealInputError),
+        (
+            "all abi's 1",
+            fnWithABIAnnotations,
+            [av_byte, av_u32_static_arr, av_bool_dym_arr],
+            None,
+        ),
+        (
+            "all abi's but ints 1",
+            fnWithABIAnnotations,
+            [x, av_u32_static_arr, av_bool_dym_arr],
+            pt.TealInputError,
+        ),
+        (
+            "all abi's but ints 2",
+            fnWithABIAnnotations,
+            [x, av_u32_static_arr, x],
+            pt.TealInputError,
+        ),
+        ("all abi's but ints 3", fnWithABIAnnotations, [x, x, x], pt.TealInputError),
+        (
+            "all abi's but sv's 1",
+            fnWithABIAnnotations,
+            [sv, av_u32_static_arr, av_bool_dym_arr],
+            pt.TealInputError,
+        ),
+        (
+            "all abi's but sv's 2",
+            fnWithABIAnnotations,
+            [av_byte, av_u32_static_arr, sv],
+            pt.TealInputError,
+        ),
+        (
+            "all abi's but sv's 3",
+            fnWithABIAnnotations,
+            [av_byte, sv, av_u32_static_arr],
+            pt.TealInputError,
+        ),
+        (
+            "all abi's but wrong typed 1",
+            fnWithABIAnnotations,
+            [av_u32_static_arr, av_u32_static_arr, av_bool_dym_arr],
+            pt.TealInputError,
+        ),
+        (
+            "all abi's but wrong typed 2",
+            fnWithABIAnnotations,
+            [av_bool, av_bool_dym_arr, av_u16],
+            pt.TealInputError,
+        ),
+        (
+            "all abi's but wrong typed 3",
+            fnWithABIAnnotations,
+            [av_u16, av_bool, av_byte],
+            pt.TealInputError,
+        ),
         ("mixed1 copacetic", fnWithMixedAnns1, [sv, x], None),
         ("mixed1 flipped", fnWithMixedAnns1, [x, sv], pt.TealInputError),
         ("mixed1 missing the sv", fnWithMixedAnns1, [x, s], pt.TealInputError),
@@ -120,6 +191,25 @@ def test_subroutine_invocation_param_types():
         ("mixed3 copacetic", fnWithMixedAnns3, [s, sv], None),
         ("mixed3 flipped", fnWithMixedAnns3, [sv, x], pt.TealInputError),
         ("mixed3 missing the sv", fnWithMixedAnns3, [x, s], pt.TealInputError),
+        ("mixed anno", fnWithMixedAnns4, [sv, x, av_u16], None),
+        (
+            "mixed anno but wrong typed 1",
+            fnWithMixedAnns4,
+            [av_byte, x, av_u16],
+            pt.TealInputError,
+        ),
+        (
+            "mixed anno but wrong typed 2",
+            fnWithMixedAnns4,
+            [sv, av_byte, sv],
+            pt.TealInputError,
+        ),
+        (
+            "mixed anno but wrong typed 3",
+            fnWithMixedAnns4,
+            [sv, x, av_byte],
+            pt.TealInputError,
+        ),
     ]
     for case_name, fn, args, err in cases:
         definition = pt.SubroutineDefinition(fn, pt.TealType.none)
@@ -170,7 +260,17 @@ def test_subroutine_definition_invalid():
         return pt.Return()
 
     def fnWithMixedAnns4AndBytesReturn(a: pt.Expr, b: pt.ScratchVar) -> pt.Bytes:
-        return pt.Bytes("helo")
+        return pt.Bytes("hello uwu")
+
+    def fnWithMixedAnnsABIRet1(
+        a: pt.Expr, b: pt.ScratchVar, c: pt.abi.Uint16
+    ) -> pt.abi.StaticArray[pt.abi.Uint32, Literal[10]]:
+        return pt.abi.StaticArray(pt.abi.Uint32TypeSpec(), 10)
+
+    def fnWithMixedAnnsABIRet2(
+        a: pt.Expr, b: pt.abi.Byte, c: pt.ScratchVar
+    ) -> pt.abi.Uint64:
+        return pt.abi.Uint64()
 
     cases = (
         (1, "TealInputError('Input to SubroutineDefinition is not callable'"),
@@ -206,6 +306,15 @@ def test_subroutine_definition_invalid():
         (
             fnWithMixedAnns4AndBytesReturn,
             "Function has return of disallowed type <class 'pyteal.Bytes'>",
+        ),
+        (
+            fnWithMixedAnnsABIRet1,
+            "Function has return of disallowed type pyteal.StaticArray[pyteal.Uint32, typing.Literal[10]]. "
+            "Only Expr is allowed",
+        ),
+        (
+            fnWithMixedAnnsABIRet2,
+            "Function has return of disallowed type <class 'pyteal.Uint64'>. Only Expr is allowed",
         ),
     )
 
